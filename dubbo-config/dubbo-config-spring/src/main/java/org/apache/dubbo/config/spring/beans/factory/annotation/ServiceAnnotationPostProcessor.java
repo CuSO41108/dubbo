@@ -618,6 +618,14 @@ public class ServiceAnnotationPostProcessor
             AnnotatedBeanDefinition refServiceBeanDefinition,
             Map<String, Object> attributes) {
 
+        if (shouldSkipDueToConditionalOnMissingBean(refServiceBeanDefinition)) {
+            if (logger.isDebugEnabled()) {
+                logger.debug("Skip registering ServiceBean for bean [" + refServiceBeanName
+                        + "] due to @ConditionalOnMissingBean condition not satisfied");
+            }
+            return;
+        }
+
         Map<String, Object> serviceAnnotationAttributes = new LinkedHashMap<>(attributes);
 
         // get bean class from return type
@@ -660,6 +668,43 @@ public class ServiceAnnotationPostProcessor
         if (logger.isInfoEnabled()) {
             logger.info("Register ServiceBean[" + serviceBeanName + "]: " + serviceBeanDefinition);
         }
+    }
+
+    private boolean shouldSkipDueToConditionalOnMissingBean(AnnotatedBeanDefinition beanDefinition) {
+        MethodMetadata factoryMethod = SpringCompatUtils.getFactoryMethodMetadata(beanDefinition);
+        if (factoryMethod == null) {
+            return false;
+        }
+
+        Map<String, Object> conditionalAttrs = factoryMethod.getAnnotationAttributes(
+                "org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean");
+
+        if (conditionalAttrs == null || conditionalAttrs.isEmpty()) {
+            return false;
+        }
+
+        Class<?>[] beanTypes = (Class<?>[]) conditionalAttrs.get("value");
+        if (beanTypes == null) {
+            return false;
+        }
+
+        for (Class<?> beanType : beanTypes) {
+            if (hasExistingBeanOfType(beanType)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean hasExistingBeanOfType(Class<?> beanType) {
+        if (registry instanceof ConfigurableListableBeanFactory) {
+            ConfigurableListableBeanFactory beanFactory = (ConfigurableListableBeanFactory) registry;
+
+            String[] beanNames = beanFactory.getBeanNamesForType(beanType);
+            return beanNames.length > 0;
+        }
+        return false;
     }
 
     @Override
